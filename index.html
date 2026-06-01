@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Antropos | Evoluzione Ominide | Modelli 3D + Ricostruzioni</title>
+    
+    <!-- Librerie -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-color: #0d0d11;
+            --panel-bg: #16161f;
+            --accent-gold: #d4af37;
+            --accent-gold-rgb: 212, 175, 55;
+            --accent-rust: #c05c2d;
+            --text-primary: #f1f1f5;
+            --text-muted: #9da0b0;
+            --border-color: #2b2b3a;
+            --card-radius: 20px;
+            --safe-bottom: env(safe-area-inset-bottom, 0);
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            line-height: 1.5;
+            padding: 16px;
+            padding-bottom: max(20px, var(--safe-bottom));
+        }
+        .container { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+        header { text-align: center; padding: 12px 8px 8px 8px; border-bottom: 1px solid var(--border-color); }
+        header h1 { font-family: 'Cinzel', serif; font-size: 1.9rem; letter-spacing: 1px; color: var(--accent-gold); text-shadow: 0 0 8px rgba(var(--accent-gold-rgb), 0.2); }
+        header p { color: var(--text-muted); font-size: 0.8rem; max-width: 90%; margin: 0 auto; }
+        .timeline-section { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 18px 12px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); }
+        .timeline-controls { display: flex; flex-direction: column; gap: 16px; }
+        @media (min-width: 640px) { .timeline-controls { flex-direction: row; align-items: center; gap: 20px; } }
+        #play-btn { background-color: var(--accent-rust); color: white; border: none; padding: 10px 18px; font-weight: 600; font-size: 0.85rem; border-radius: 40px; cursor: pointer; transition: all 0.2s ease; white-space: nowrap; width: fit-content; align-self: center; }
+        @media (min-width: 640px) { #play-btn { align-self: auto; } }
+        #play-btn.playing { background-color: #27ae60; }
+        .slider-container { flex: 1; width: 100%; overflow-x: auto; scrollbar-width: thin; }
+        .dot-timeline { position: relative; min-width: 100%; padding: 12px 0 20px 0; }
+        .timeline-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; background: var(--border-color); border-radius: 4px; transform: translateY(-50%); }
+        .timeline-progress { position: absolute; top: 50%; left: 0; height: 3px; background: linear-gradient(90deg, var(--accent-gold), var(--accent-rust)); border-radius: 4px; transform: translateY(-50%); width: 0%; transition: width 0.25s ease; }
+        .dots-container { display: flex; justify-content: space-between; align-items: center; gap: 8px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .dots-container::-webkit-scrollbar { height: 4px; }
+        .dots-container::-webkit-scrollbar-track { background: var(--border-color); border-radius: 10px; }
+        .dots-container::-webkit-scrollbar-thumb { background: var(--accent-gold); border-radius: 10px; }
+        .dot-wrapper { display: flex; flex-direction: column; align-items: center; min-width: 70px; scroll-snap-align: center; cursor: pointer; position: relative; }
+        .timeline-dot { width: 20px; height: 20px; background-color: var(--bg-color); border: 3px solid var(--border-color); border-radius: 50%; transition: all 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1); cursor: pointer; }
+        @media (max-width: 550px) { .dot-wrapper { min-width: 55px; } .timeline-dot { width: 16px; height: 16px; border-width: 2px; } .dot-label { font-size: 0.55rem; } }
+        .timeline-dot.active { background-color: var(--accent-gold); border-color: var(--accent-gold); box-shadow: 0 0 12px rgba(var(--accent-gold-rgb), 0.7); transform: scale(1.2); }
+        .dot-label { font-size: 0.65rem; color: var(--text-muted); margin-top: 8px; font-weight: 500; text-align: center; white-space: nowrap; }
+        
+        /* Layout principale: mappa a destra, info a sinistra */
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        @media (min-width: 860px) {
+            .main-content {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                align-items: start;
+            }
+        }
+        
+        /* Colonna sinistra: solo visuali (cranio 3D + ricostruzione) */
+        .visual-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        
+        /* Colonna destra: mappa + testi sotto */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        
+        .card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            padding: 20px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+        
+        /* Scheda informativa sopra il modello 3D */
+        .species-header {
+            margin-bottom: 20px;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 16px;
+        }
+        .species-header .hominid-name {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            color: var(--accent-gold);
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+        }
+        .info-badge-row {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .info-badge {
+            background: rgba(0,0,0,0.4);
+            border-radius: 40px;
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+        }
+        .info-badge .label {
+            color: var(--text-muted);
+        }
+        .info-badge .value {
+            font-weight: 700;
+            color: var(--accent-gold);
+        }
+        
+        /* Sezione visuali in colonna */
+        .visual-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 8px;
+        }
+        .visual-box {
+            background: #08080c;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            position: relative;
+        }
+        .visual-box h4 {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            padding: 8px 12px;
+            margin: 0;
+            color: var(--accent-gold);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .skull-viewer, .reconstruction-viewer {
+            position: relative;
+            min-height: 260px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #08080c;
+        }
+        #skull-iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 280px;
+            border: none;
+            background: #08080c;
+        }
+        .reconstruction-img {
+            width: 100%;
+            height: auto;
+            max-height: 300px;
+            object-fit: contain;
+            background: linear-gradient(145deg, #121218, #08080c);
+            display: block;
+            margin: 0 auto;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        .reconstruction-img:hover {
+            transform: scale(1.02);
+        }
+        .skull-fallback, .recon-fallback {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            gap: 12px;
+        }
+        .specie-badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(6px);
+            border-radius: 40px;
+            padding: 3px 10px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: var(--accent-gold);
+            z-index: 5;
+        }
+        .model-note {
+            position: absolute;
+            bottom: 6px;
+            right: 8px;
+            background: rgba(0,0,0,0.6);
+            font-size: 0.5rem;
+            color: var(--text-muted);
+            padding: 2px 6px;
+            border-radius: 20px;
+            z-index: 5;
+        }
+        
+        /* Mappa */
+        .map-panel {
+            display: flex;
+            flex-direction: column;
+            background: var(--panel-bg);
+            border-radius: var(--card-radius);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            min-height: 420px;
+        }
+        .map-title-bar {
+            background: rgba(0,0,0,0.4);
+            padding: 12px 16px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .map-wrapper {
+            flex: 1;
+            min-height: 380px;
+            position: relative;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+            min-height: 380px;
+            z-index: 1;
+        }
+        
+        /* Testi sotto la mappa */
+        .text-under-map {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .description-box h3, .features-box h3 { 
+            font-size: 1rem; 
+            color: var(--accent-rust); 
+            margin-bottom: 12px; 
+            letter-spacing: 0.5px; 
+            border-left: 3px solid var(--accent-gold); 
+            padding-left: 12px; 
+        }
+        .description-box p { 
+            font-size: 0.9rem; 
+            text-align: justify; 
+            color: #dddde6; 
+            line-height: 1.6;
+        }
+        .features-list { 
+            list-style: none; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+        }
+        .features-list li { 
+            font-size: 0.85rem; 
+            padding-left: 22px; 
+            position: relative; 
+        }
+        .features-list li::before { 
+            content: "⚜️"; 
+            position: absolute; 
+            left: 0; 
+            top: 0; 
+            font-size: 0.8rem; 
+            color: var(--accent-gold); 
+        }
+        
+        button, .timeline-dot, .dot-wrapper { touch-action: manipulation; }
+        @media (max-width: 550px) { 
+            body { padding: 12px; } 
+            .card { padding: 16px; } 
+            .features-list li { font-size: 0.8rem; } 
+            .map-wrapper { min-height: 320px; } 
+            .species-header .hominid-name { font-size: 1.3rem; } 
+            .info-badge { padding: 4px 12px; font-size: 0.7rem; } 
+        }
+        .leaflet-popup-content-wrapper { background: var(--panel-bg) !important; color: var(--text-primary) !important; border-radius: 12px; border-left: 3px solid var(--accent-gold); }
+        .leaflet-popup-content { font-size: 0.8rem; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .reconstruction-img { animation: fadeIn 0.4s ease-out; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>ANTROPOS</h1>
+        <p>14 tappe • Modelli Smithsonian • Ricostruzioni artistiche • Siti fossili verificati</p>
+    </header>
+
+    <section class="timeline-section">
+        <div class="timeline-controls">
+            <button id="play-btn">▶ Avvia storia</button>
+            <div class="slider-container">
+                <div class="dot-timeline">
+                    <div class="timeline-track"></div>
+                    <div class="timeline-progress" id="timeline-progress"></div>
+                    <div class="dots-container" id="dots-container"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <main class="main-content">
+        <!-- COLONNA SINISTRA: solo visuali (cranio 3D + ricostruzione) -->
+        <section class="visual-panel">
+            <div class="card">
+                <div class="species-header">
+                    <h2 class="hominid-name" id="hom-name">-</h2>
+                    <div class="info-badge-row">
+                        <div class="info-badge"><span class="label">📅 Epoca</span><span class="value" id="hom-period">-</span></div>
+                        <div class="info-badge"><span class="label">🧠 Capacità cranica</span><span class="value" id="hom-brain">-</span></div>
+                    </div>
+                </div>
+                
+                <div class="visual-section">
+                    <!-- Modello 3D Smithsonian -->
+                    <div class="visual-box">
+                        <h4>🎭 Modello 3D Smithsonian</h4>
+                        <div class="skull-viewer">
+                            <span class="specie-badge" id="skull-catalog">Modello 3D</span>
+                            <iframe id="skull-iframe" allow="xr-spatial-tracking; fullscreen" title="Modello 3D" src="about:blank"></iframe>
+                            <div id="skull-fallback" class="skull-fallback">
+                                <span>🧠 Modello 3D non disponibile</span>
+                                <small>Visita 3d.si.edu</small>
+                            </div>
+                            <div class="model-note">🖱️ Trascina per ruotare | Zoom</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Ricostruzione artistica -->
+                    <div class="visual-box">
+                        <h4>🎨 Ricostruzione artistica</h4>
+                        <div class="reconstruction-viewer" id="recon-viewer">
+                            <img id="reconstruction-img" class="reconstruction-img" src="" alt="Ricostruzione artistica dell'ominide" style="display: none;">
+                            <div id="recon-fallback" class="recon-fallback">
+                                <span>🖼️ Ricostruzione artistica</span>
+                                <small>Illustrazione scientifica basata sui reperti fossili</small>
+                                <button id="retry-recon" style="margin-top:8px; background:#2b2b3a; border:none; color:#d4af37; padding:4px 12px; border-radius:20px; cursor:pointer;">↻ Carica immagine</button>
+                            </div>
+                            <div class="model-note">📖 Ricostruzione paleoartistica</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- COLONNA DESTRA: mappa + testi (inquadramento e tratti distintivi) -->
+        <section class="right-panel">
+            <!-- Mappa geografica -->
+            <div class="map-panel">
+                <div class="map-title-bar">
+                    <span>🌍 Principali siti di ritrovamento fossile</span>
+                    <span id="map-target-species" style="color: var(--accent-gold); font-weight: 600;">-</span>
+                </div>
+                <div class="map-wrapper">
+                    <div id="map"></div>
+                </div>
+            </div>
+            
+            <!-- Testi sotto la mappa -->
+            <div class="text-under-map">
+                <div class="card description-box">
+                    <h3>📖 Inquadramento</h3>
+                    <p id="hom-desc">-</p>
+                </div>
+                <div class="card features-box">
+                    <h3>⚡ Tratti distintivi</h3>
+                    <ul class="features-list" id="hom-features"></ul>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+    // ============================================================
+    // DATI VERIFICATI CON RICOSTRUZIONI ARTISTICHE
+    // Fonti: Smithsonian, Wikimedia Commons, ricostruzioni paleoartistiche
+    // ============================================================
+    const hominids = [
+        { name: "Sahelanthropus tchadensis", period: "7-6 milioni di anni fa", brain: "360-380 cc", catalog: "Toumaï", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:9730a62f-a649-44fb-8494-aa7c9b6eb1f8", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/7/70/Sahelanthropus_tchadensis_-_Toumaï.jpg", desc: "Scoperto in Ciad (2001). Forame magno in posizione anteriore, possibile bipedismo occasionale.", features: ["Forame magno semi-avanzato", "Canini ridotti", "Arcata sopracciliare massiccia"], markers: [{ coords: [16.262, 18.784], title: "Toros-Menalla (TM 266)", desc: "Olótipo 'Toumaï'." }] },
+        { name: "Orrorin tugenensis", period: "6-5.7 milioni di anni fa", brain: "300-350 cc", catalog: "BAR 1003a", model3dUrl: "https://3d.si.edu/embed/modelo/orrorin-tugenensis", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/3/3c/Orrorin_tugenensis_%28cast%29.jpg", desc: "Kenya (2000). Femore adatto al bipedismo.", features: ["Femore con collo lungo", "Piccoli canini", "Statura ~1 metro"], markers: [{ coords: [0.5, 35.5], title: "Colline Tugen (BAR 1003a)", desc: "Scoperto da Martin Pickford." }] },
+        { name: "Australopithecus anamensis", period: "4.2-3.9 milioni di anni fa", brain: "370-400 cc", catalog: "KNM-KP 29281", model3dUrl: "https://3d.si.edu/embed/modelo/australopithecus-anamensis", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/8/8b/Australopithecus_anamensis_-_cast.jpg", desc: "Precursore di A. afarensis. Trovato a Kanapoi (Kenya).", features: ["Tibia e femore da bipede", "Grandi molari", "Mascella prognata"], markers: [{ coords: [4.0, 36.0], title: "Kanapoi", desc: "Scoperto da Meave Leakey (1994)." }, { coords: [3.95, 36.2], title: "Allia Bay", desc: "Altro sito fossile." }] },
+        { name: "Australopithecus afarensis", period: "3.9-2.9 milioni di anni fa", brain: "380-430 cc", catalog: "Lucy (AL 288-1)", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:6faf8121-250c-47cb-a5cc-139d7b16c570", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/5/5d/Australopithecus_afarensis_%28Lucy%29.jpg", desc: "Famoso scheletro di Lucy. Impronte di Laetoli dimostrano bipedismo.", features: ["Bipedismo stabile", "Braccia lunghe", "Forte dimorfismo sessuale"], markers: [{ coords: [11.134, 40.582], title: "Hadar (Lucy)", desc: "Scoperta da Donald Johanson (1974)." }, { coords: [-3.218, 35.215], title: "Laetoli", desc: "Impronte di 3.66 Ma." }] },
+        { name: "Kenyanthropus platyops", period: "3.5-3.2 milioni di anni fa", brain: "400-450 cc", catalog: "KNM-WT 40000", model3dUrl: "https://3d.si.edu/embed/modelo/kenyanthropus-platyops", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/8/8e/Kenyanthropus_platyops_%28KNM-WT_40000%29.jpg", desc: "Cranio dalla faccia piatta, Lago Turkana (1999).", features: ["Faccia piatta", "Piccoli molari", "Orbite alte"], markers: [{ coords: [4.0, 36.0], title: "Lago Turkana (KNM-WT 40000)", desc: "Ritrovato da Meave Leakey." }] },
+        { name: "Paranthropus robustus", period: "2-1.5 milioni di anni fa", brain: "500-550 cc", catalog: "TM 1517", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:8bc77140-b75c-4f96-9899-bf275b5d43dd", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/9/9a/Paranthropus_robustus_-_cast.jpg", desc: "Sudafrica, specializzato in vegetali duri.", features: ["Cresta sagittale", "Mascelle enormi", "Cranio robusto"], markers: [{ coords: [-26.0, 27.5], title: "Sterkfontein", desc: "Culla dell'Umanità." }, { coords: [-25.97, 27.78], title: "Swartkrans", desc: "Numerosi fossili." }] },
+        { name: "Homo habilis", period: "2.4-1.5 milioni di anni fa", brain: "550-650 cc", catalog: "OH 7", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:bccdf96f-a637-46c6-8bcc-063a3e3f86bc", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/2/28/Homo_habilis_-_KNM-ER_1813.jpg", desc: "Primo Homo, primi strumenti in pietra (Olduvaiense).", features: ["Primi manufatti litici", "Riduzione dei denti", "Dieta onnivora"], markers: [{ coords: [-2.983, 35.352], title: "Gola di Olduvai (OH 7)", desc: "Olótipo." }, { coords: [4.283, 36.261], title: "Koobi Fora (KNM-ER 1813)", desc: "Cranio completo." }] },
+        { name: "Homo ergaster", period: "1.8-1.4 milioni di anni fa", brain: "700-850 cc", catalog: "Ragazzo di Turkana", model3dUrl: "https://3d.si.edu/embed/modelo/homo-ergaster", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/1/1a/Homo_ergaster_-_KNM-WT_15000.jpg", desc: "Corpo moderno, cultura acheuleana.", features: ["Corpo longilineo", "Tecnologia acheuleana", "Statura 1.80 m"], markers: [{ coords: [4.0, 36.0], title: "Lago Turkana (KNM-WT 15000)", desc: "Ragazzo di Turkana (1984)." }] },
+        { name: "Homo erectus", period: "1.9 milioni - 110.000 anni fa", brain: "850-1100 cc", catalog: "Trinil 2", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:8b87e356-a0fe-44ee-9800-9e0ea91c358c", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/1/1c/Homo_erectus_adult_male_-_head_model_-_Smithsonian_Museum_of_Natural_History.jpg", desc: "Migrazioni fuori dall'Africa, controllo del fuoco.", features: ["Migrazioni fuori dall'Africa", "Controllo del fuoco", "Acheuleano evoluto"], markers: [{ coords: [-7.461, 110.835], title: "Sangiran, Indonesia", desc: "Uomo di Giava." }, { coords: [41.328, 44.341], title: "Dmanisi, Georgia", desc: "1.8 Ma." }, { coords: [39.730, 115.923], title: "Zhoukoudian, Cina", desc: "Uomo di Pechino." }] },
+        { name: "Homo antecessor", period: "1.2 milioni - 800.000 anni fa", brain: "1000-1150 cc", catalog: "ATD6-15", model3dUrl: "https://3d.si.edu/embed/modelo/homo-antecessor", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/8/8e/Homo_antecessor_-_facial_reconstruction.jpg", desc: "Primo popolatore dell'Europa occidentale.", features: ["Faccia moderna", "Evidenze di cannibalismo rituale"], markers: [{ coords: [42.35, -3.52], title: "Atapuerca (Gran Dolina)", desc: "Oltre 850.000 anni." }] },
+        { name: "Homo heidelbergensis", period: "700.000-200.000 anni fa", brain: "1100-1400 cc", catalog: "Mauer 1", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:875362ca-8f60-4c40-b170-462392480281", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/2/2a/Homo_heidelbergensis_-_facial_reconstruction.jpg", desc: "Antenato comune di Neanderthal e Sapiens. Prime sepolture.", features: ["Capacità cranica 1200-1400 cc", "Prime sepolture", "Cacciatori organizzati"], markers: [{ coords: [49.5, 8.7], title: "Mauer, Germania", desc: "Olótipo (1907)." }, { coords: [42.35, -3.52], title: "Sima de los Huesos", desc: "Oltre 6.500 fossili." }] },
+        { name: "Homo neanderthalensis", period: "400.000-40.000 anni fa", brain: "1200-1750 cc", catalog: "Neanderthal 1", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:eb19cb72-335c-40b0-817c-8bd97c61a49b", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/2/2b/Neanderthal_face_reconstruction.jpg", desc: "Adattato ai climi freddi. Cultura simbolica.", features: ["Corpo massiccio", "Sepolture rituali", "Tecnologia Levallois"], markers: [{ coords: [51.225, 6.950], title: "Valle di Neander", desc: "Primo fossile (1856)." }, { coords: [44.982, 1.711], title: "La Chapelle-aux-Saints", desc: "Sepoltura intenzionale." }, { coords: [40.828, 16.551], title: "Altamura, Italia", desc: "Scheletro intatto." }] },
+        { name: "Homo floresiensis", period: "100.000-60.000 anni fa", brain: "380 cc", catalog: "LB1 (Hobbit)", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:425a517b-8308-4ac9-8f3b-08f74e4ff9e5", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/1/1f/Homo_floresiensis_-_facial_reconstruction.jpg", desc: "Nanismo insulare a Flores. Uso del fuoco.", features: ["Statura 1 metro", "Volume cerebrale ridotto", "Uso del fuoco"], markers: [{ coords: [-8.9, 121.0], title: "Liang Bua, Flores", desc: "Scoperti nel 2003." }] },
+        { name: "Homo sapiens", period: "300.000 anni fa - Presente", brain: "1300-1500 cc", catalog: "Cro-Magnon 1", model3dUrl: "https://3d-api.si.edu/voyager/3d_package:81b6a3c1-4a09-4416-82ed-937612dcf310", reconstructionUrl: "https://upload.wikimedia.org/wikipedia/commons/a/a3/Cro-Magnon_reconstruction.jpg", desc: "Unica specie sopravvissuta. Origine in Africa ~300 ka.", features: ["Cranio globulare", "Pensiero simbolico", "Arte e linguaggio"], markers: [{ coords: [31.851, -8.878], title: "Jebel Irhoud, Marocco", desc: "Homo sapiens più antico (315 ka)." }, { coords: [5.394, 35.933], title: "Omo Kibish, Etiopia", desc: "Omo I e II (195 ka)." }, { coords: [44.939, 1.018], title: "Cro-Magnon, Francia", desc: "Aurignaziano." }] }
+    ];
+
+    // Mappa
+    let map = L.map('map').setView([20, 20], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO',
+        maxZoom: 12
+    }).addTo(map);
+    let markerGroup = L.layerGroup().addTo(map);
+    
+    // Timeline
+    const dotsContainer = document.getElementById('dots-container');
+    const timelineProgress = document.getElementById('timeline-progress');
+    
+    function buildDots() {
+        dotsContainer.innerHTML = '';
+        hominids.forEach((h, idx) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'dot-wrapper';
+            const dot = document.createElement('div');
+            dot.className = `timeline-dot ${idx === 0 ? 'active' : ''}`;
+            dot.setAttribute('data-index', idx);
+            let shortLabel = "";
+            const nameMap = { 'sapiens':'300 ka', 'floresiensis':'100 ka', 'neanderthalensis':'400 ka', 'erectus':'1.9 Ma', 'heidelbergensis':'700 ka', 'antecessor':'1.2 Ma', 'ergaster':'1.8 Ma', 'habilis':'2.4 Ma', 'robustus':'2 Ma', 'platyops':'3.5 Ma', 'afarensis':'3.9 Ma', 'anamensis':'4.2 Ma', 'tugenensis':'6 Ma', 'tchadensis':'7 Ma' };
+            for (let [key, val] of Object.entries(nameMap)) if (h.name.toLowerCase().includes(key)) shortLabel = val;
+            if (!shortLabel) shortLabel = h.period.split(' ')[0];
+            const labelSpan = document.createElement('div');
+            labelSpan.className = 'dot-label';
+            labelSpan.innerText = shortLabel;
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (autoplayInterval) toggleAutoplay();
+                updateHominid(idx);
+                dot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            });
+            wrapper.appendChild(dot);
+            wrapper.appendChild(labelSpan);
+            dotsContainer.appendChild(wrapper);
+        });
+        updateProgressWidth(0);
+    }
+    
+    function updateProgressWidth(idx) {
+        const percent = (idx / (hominids.length - 1)) * 100;
+        timelineProgress.style.width = `${percent}%`;
+        document.querySelectorAll('.timeline-dot').forEach((dot, i) => {
+            if (i === idx) dot.classList.add('active');
+            else dot.classList.remove('active');
+        });
+    }
+    
+    function updateHominid(index) {
+        const h = hominids[index];
+        if (!h) return;
+        document.getElementById('hom-name').innerText = h.name;
+        document.getElementById('hom-period').innerText = h.period;
+        document.getElementById('hom-brain').innerText = h.brain;
+        document.getElementById('hom-desc').innerText = h.desc;
+        document.getElementById('skull-catalog').innerHTML = `📄 ${h.catalog}`;
+        document.getElementById('map-target-species').innerText = h.name;
+        
+        const featuresList = document.getElementById('hom-features');
+        featuresList.innerHTML = "";
+        h.features.forEach(f => { const li = document.createElement('li'); li.innerText = f; featuresList.appendChild(li); });
+        
+        // Modello 3D
+        const iframe = document.getElementById('skull-iframe');
+        const fallbackDiv = document.getElementById('skull-fallback');
+        if (h.model3dUrl && h.model3dUrl !== "" && h.model3dUrl !== "#") {
+            iframe.src = h.model3dUrl;
+            iframe.style.display = "block";
+            fallbackDiv.style.display = "none";
+        } else {
+            iframe.style.display = "none";
+            iframe.src = "about:blank";
+            fallbackDiv.style.display = "flex";
+        }
+        
+        // Ricostruzione artistica
+        const reconImg = document.getElementById('reconstruction-img');
+        const reconFallback = document.getElementById('recon-fallback');
+        if (h.reconstructionUrl && h.reconstructionUrl !== "" && h.reconstructionUrl !== "#") {
+            reconImg.onload = () => {
+                reconImg.style.display = "block";
+                reconFallback.style.display = "none";
+            };
+            reconImg.onerror = () => {
+                reconImg.style.display = "none";
+                reconFallback.style.display = "flex";
+            };
+            reconImg.src = h.reconstructionUrl;
+        } else {
+            reconImg.style.display = "none";
+            reconFallback.style.display = "flex";
+        }
+        
+        // Mappa
+        markerGroup.clearLayers();
+        let bounds = [];
+        h.markers.forEach(m => {
+            bounds.push(m.coords);
+            L.marker(m.coords, { icon: L.divIcon({ html: '<div style="background:#d4af37; width:12px; height:12px; border-radius:50%; border:2px solid #000; box-shadow:0 0 8px gold;"></div>', iconSize: [12,12] }) })
+                .addTo(markerGroup)
+                .bindPopup(`<strong style="color:#c05c2d;">${m.title}</strong><br>${m.desc}<br><small>📌 Sito fossile</small>`);
+            L.circle(m.coords, { color: '#d4af37', weight: 1, fillColor: '#d4af37', fillOpacity: 0.05, radius: 200000 }).addTo(markerGroup);
+        });
+        if (bounds.length) {
+            map.flyToBounds(L.latLngBounds(bounds), { padding: [50,50], maxZoom: 6, duration: 1.0 });
+        }
+        updateProgressWidth(index);
+        if (window.innerWidth <= 700) {
+            const activeDot = document.querySelector(`.timeline-dot[data-index="${index}"]`);
+            if(activeDot) activeDot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+    }
+    
+    // Bottone retry
+    document.getElementById('retry-recon')?.addEventListener('click', () => {
+        const currentIdx = parseInt(document.querySelector('.timeline-dot.active')?.getAttribute('data-index') || '0');
+        updateHominid(currentIdx);
+    });
+    
+    let autoplayInterval = null;
+    const playBtn = document.getElementById('play-btn');
+    let currentIdx = 0;
+    
+    function toggleAutoplay() {
+        if (autoplayInterval) {
+            clearInterval(autoplayInterval);
+            autoplayInterval = null;
+            playBtn.innerText = '▶ Avvia storia';
+            playBtn.classList.remove('playing');
+        } else {
+            autoplayInterval = setInterval(() => {
+                currentIdx = (currentIdx + 1) % hominids.length;
+                updateHominid(currentIdx);
+            }, 12000);
+            playBtn.innerText = '❚❚ Pausa';
+            playBtn.classList.add('playing');
+        }
+    }
+    
+    playBtn.addEventListener('click', toggleAutoplay);
+    window.addEventListener('resize', () => { setTimeout(() => map.invalidateSize(), 100); });
+    buildDots();
+    updateHominid(0);
+    currentIdx = 0;
+</script>
+</body>
+</html>
